@@ -1,22 +1,135 @@
 # security-service
 
-Componente de [LogiTrack Atom](https://github.com/LogiTrack-Atom) para el Sprint 02.
+Servicio de identidad de [LogiTrack Atom](https://github.com/LogiTrack-Atom).
+Responsable principal: [MaxDZ-10](https://github.com/MaxDZ-10).
 
-## Responsabilidad
+## Alcance actual
 
-Usuarios, autenticación, roles y emisión de JWT.
+La [issue #1](https://github.com/LogiTrack-Atom/security-service/issues/1) implementa registro CLIENTE, usuarios UUID, roles de dominio, contraseñas con hash y aprovisionamiento inicial de ADMIN. La aplicación usa Java 25, Spring Boot 4.1.1 y MySQL 8.4.11. Maven Wrapper fija Maven 3.10.0.
 
-Responsable principal: [@MaxDZ-10](https://github.com/MaxDZ-10).
+Login, emisión de JWT y usuario autenticado corresponden a la [issue #2](https://github.com/LogiTrack-Atom/security-service/issues/2). La administración REST de usuarios corresponde a la [issue #3](https://github.com/LogiTrack-Atom/security-service/issues/3). Config Client y la imagen Docker de la aplicación corresponden a la [issue #4](https://github.com/LogiTrack-Atom/security-service/issues/4). Las rutas restantes están denegadas durante esta primera etapa.
 
-## Estado
+Los [contratos compartidos](https://github.com/LogiTrack-Atom/shipment-service/blob/develop/docs/sprint02/Contratos_tecnicos.md) y el [Project común](https://github.com/orgs/LogiTrack-Atom/projects/1) coordinan los cinco repositorios. El Compose general se mantiene en shipment-service.
 
-Repositorio preparado para iniciar el Sprint 02. La implementación y sus verificaciones se realizarán mediante las issues correspondientes.
+## Estructura
 
-## Flujo de trabajo
+| Componente | Responsabilidad |
+| --- | --- |
+| controller | Frontera HTTP y validación del registro |
+| dto | Entrada limitada a email/password y respuestas sin credenciales |
+| service / service.impl | Unicidad, hash, rol de alta y transacciones |
+| repository / entity | Persistencia y auditoría de usuarios |
+| mapper | Conversión a datos públicos |
+| config / bootstrap | Seguridad web y alta inicial opcional de ADMIN |
+| exception / validation | ApiError y límites de entrada |
+| docker/mysql/init | Esquema inicial versionado |
+| src/test | Pruebas unitarias y MySQL aislado mediante Testcontainers |
 
-- Crear las issues de este componente en este repositorio y agregarlas al Project común **LogiTrack Atom** de la organización.
-- Trabajar en ramas por tarea y abrir pull requests hacia `develop`.
-- Integrar y preparar la entrega desde `develop`.
-- Enlazar las tareas relacionadas cuando haya dependencias entre repositorios.
+Las clases y los métodos públicos incluyen Javadoc con reglas, parámetros y retornos aplicables. El UUID de usuario es independiente del UUID de cliente o repartidor; este servicio no contiene relaciones JPA hacia otras bases.
 
-El Docker Compose general y la documentación de integración se mantienen en [shipment-service](https://github.com/LogiTrack-Atom/shipment-service).
+## Registro público
+
+`POST /api/v1/auth/register`, con `Content-Type: application/json`:
+
+```json
+{
+  "email": "ana@example.com",
+  "password": "FraseDeEjemploParaEntornoLocal"
+}
+```
+
+La contraseña del ejemplo es ilustrativa. La respuesta 201 contiene `id`, `email`, `roles: ["CLIENTE"]`, `createdAt` y `updatedAt`; nunca incluye contraseña ni hash. El rol se decide en el servicio. JSON con `rol`, `roles`, identificadores de dominio u otros campos desconocidos produce 400.
+
+El correo se normaliza con `strip()` y minúsculas mediante `Locale.ROOT`; tiene formato email, máximo 254 caracteres y restricción única en MySQL. La contraseña no se recorta ni normaliza: admite al menos 12 caracteres y hasta 72 bytes UTF-8, comprobados antes de BCrypt para evitar truncamiento de caracteres multibyte. El hash usa BCrypt con factor 12 y prefijo `{bcrypt}`.
+
+| Estado | Significado |
+| --- | --- |
+| 201 | Cuenta CLIENTE creada |
+| 400 | Credenciales inválidas, JSON inválido o campos no admitidos |
+| 409 | Correo ocupado o conflicto de persistencia, incluida concurrencia |
+| 415 | Tipo de contenido no admitido |
+| 401 / 403 | Denegación de una ruta no habilitada |
+
+Los errores mantienen `timestamp`, `status`, `error`, `mensaje` y `detalles`, conforme a ApiError. Las respuestas no devuelven valores de contraseña, SQL ni trazas internas. No se habilitan HTTP Basic, formulario, sesión ni usuario de desarrollo automático de Spring Security.
+
+## MySQL local y arranque
+
+Se necesitan JDK 25, Docker y acceso a Maven Central durante la primera resolución de dependencias. Los siguientes comandos crean una base local dedicada; los secretos se ingresan por terminal y no se escriben en Git.
+
+Desde la raíz de este repositorio, en Bash:
+
+```bash
+read -r -s -p 'Contraseña de security_app: ' MYSQL_PASSWORD
+printf '\n'
+read -r -s -p 'Contraseña root del MySQL local: ' MYSQL_ROOT_PASSWORD
+printf '\n'
+export MYSQL_PASSWORD MYSQL_ROOT_PASSWORD
+
+docker run -d --name logitrack-security-mysql \
+  -p 127.0.0.1:3309:3306 \
+  -e MYSQL_DATABASE=security_db -e MYSQL_USER=security_app \
+  -e MYSQL_PASSWORD -e MYSQL_ROOT_PASSWORD \
+  --mount type=volume,src=logitrack-security-mysql-data,dst=/var/lib/mysql \
+  --mount "type=bind,src=$PWD/docker/mysql/init,dst=/docker-entrypoint-initdb.d,readonly" \
+  mysql:8.4.11
+
+export DB_URL='jdbc:mysql://localhost:3309/security_db?serverTimezone=UTC'
+export DB_USERNAME=security_app
+export DB_PASSWORD="$MYSQL_PASSWORD"
+```
+
+Esperar a que MySQL termine la inicialización; puede comprobarse con `docker logs logitrack-security-mysql`. Luego:
+
+```bash
+./mvnw spring-boot:run
+```
+
+La API inicia en el puerto 8082. El script SQL se ejecuta al inicializar un volumen nuevo. En un volumen existente no vuelve a aplicar cambios de esquema: Hibernate usa `ddl-auto=validate` y rechaza divergencias. Los cambios posteriores requieren una migración versionada. No es necesario borrar datos para ejecutar las pruebas.
+
+Para usar un MySQL ya provisto, un administrador crea `security_db`, un usuario exclusivo `security_app` con acceso únicamente a esa base y ejecuta `docker/mysql/init/001-schema.sql` dentro de ella. La aplicación recibe exclusivamente las credenciales de ese usuario. Los secretos están ausentes de `.env.example`; Spring no carga archivos `.env` automáticamente, por lo que deben exportarse las variables o suministrarse con el mecanismo del entorno.
+
+## Primer administrador
+
+El bootstrap está deshabilitado por defecto. Para habilitarlo durante un arranque, después de configurar MySQL:
+
+```bash
+read -r -p 'Email del primer administrador: ' BOOTSTRAP_ADMIN_EMAIL
+read -r -s -p 'Contraseña del primer administrador: ' BOOTSTRAP_ADMIN_PASSWORD
+printf '\n'
+export BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD
+BOOTSTRAP_ADMIN_ENABLED=true ./mvnw spring-boot:run
+```
+
+Las credenciales deben cumplir el mismo contrato del registro. Si faltan o son inválidas, el arranque falla con un mensaje que no revela la contraseña. Si ya existe ADMIN con ese correo, se conservan UUID, hash y fechas; no se restablece su contraseña. Si el correo pertenece a CLIENTE o REPARTIDOR, el arranque falla y no cambia su rol. Una colisión de unicidad entre instancias concurrentes puede detener una de ellas de forma segura; al reiniciar encuentra el administrador persistido.
+
+Una vez creado, se puede reiniciar con el bootstrap deshabilitado y retirar sus credenciales del entorno. No existe un endpoint público de bootstrap ni una contraseña inicial compartida.
+
+## Verificación
+
+Pruebas unitarias, validación y hash, sin MySQL ni Docker:
+
+```bash
+./mvnw clean test
+```
+
+Suite completa con MySQL 8.4.11 aislado y el esquema real:
+
+```bash
+./mvnw clean verify
+```
+
+Testcontainers utiliza un puerto aleatorio y credenciales efímeras de prueba. No usa el MySQL local anterior ni los volúmenes del equipo. Verifica API y filtros reales, restricciones, usuario MySQL limitado, concurrencia y bootstrap persistido; no utiliza transacciones de prueba que oculten el commit. Ryuk elimina sus contenedores al terminar. Si Docker Desktop no es detectado automáticamente, se puede indicar su socket mediante `DOCKER_HOST`.
+
+Los reportes se generan en `target/surefire-reports` y `target/failsafe-reports`. Mockito declara su agente explícitamente en Surefire y Failsafe; Failsafe también habilita el acceso nativo requerido por Testcontainers en Java 25.
+
+Para verificar y generar Javadoc:
+
+```bash
+./mvnw javadoc:javadoc -Ddoclint=all
+```
+
+La documentación HTML queda dentro de `target/` y no se versiona. La generación de Javadoc rechaza advertencias y errores de documentación. Los resultados efectivamente ejecutados y el commit verificado se registran en la PR de la issue.
+
+## Colaboración
+
+Las ramas por tarea parten de `develop` y los PR se integran en `develop`. Cada issue se cierra después de verificar aceptación e integración; `main` continúa como rama predeterminada. Se mantienen alineadas las prioridades Alta/Media del Project con las etiquetas priority:P0/P1.
