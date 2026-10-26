@@ -24,10 +24,10 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Define la frontera stateless de registro, autenticación e identidad JWT.
+ * Define la frontera stateless de registro, identidad JWT y administración.
  *
  * <p>La API no usa sesiones, formularios ni autenticación por cookies. Las rutas
- * restantes permanecen denegadas hasta incorporar sus reglas de administración.</p>
+ * administrativas exigen ADMIN y las rutas no declaradas se deniegan.</p>
  *
  * @author MaxDz
  * @version 0.2.0
@@ -38,7 +38,7 @@ public class SecurityConfig {
     public SecurityConfig() { }
 
     /**
-     * Habilita registro/login públicos y protege la consulta de identidad con JWT.
+     * Aplica acceso público, autenticado o ADMIN según la operación declarada.
      * @param http constructor de seguridad web
      * @param mapper serializador JSON de la aplicación
      * @param decoder validador local de JWT
@@ -65,6 +65,8 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").hasAnyRole("ADMIN", "CLIENTE", "REPARTIDOR")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/usuarios").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/v1/usuarios/{id}").hasRole("ADMIN")
                         .anyRequest().denyAll())
                 .exceptionHandling(errors -> errors
                         .authenticationEntryPoint(unauthorized).accessDeniedHandler(forbidden))

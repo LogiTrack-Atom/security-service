@@ -12,19 +12,20 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.HttpMediaTypeNotSupportedException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import java.time.Instant;
 import java.util.List;
 
 /**
- * Traduce errores de registro a respuestas HTTP sin revelar valores sensibles.
+ * Traduce errores de identidad a respuestas HTTP sin revelar valores sensibles.
  *
  * @author MaxDz
- * @version 0.1.0
+ * @version 0.2.0
  * @see ApiError
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
-    /** Crea el traductor global de errores de registro. */
+    /** Crea el traductor global de errores de identidad. */
     public GlobalExceptionHandler() { }
 
     /**
@@ -69,6 +70,25 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiError> cuerpoInvalido() {
         return error(HttpStatus.BAD_REQUEST, "El cuerpo JSON es inválido o contiene campos no admitidos.", List.of());
+    }
+
+    /**
+     * Rechaza parámetros incompatibles con su tipo, sin reproducir el valor recibido.
+     * @return error 400 para un identificador inválido
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiError> parametroInvalido() {
+        return error(HttpStatus.BAD_REQUEST, "El parámetro de la solicitud es inválido.", List.of());
+    }
+
+    /**
+     * Informa que no existe la cuenta solicitada por un administrador autorizado.
+     * @param ex ausencia de la cuenta
+     * @return error 404 sin datos internos de persistencia
+     */
+    @ExceptionHandler(RecursoNoEncontradoException.class)
+    public ResponseEntity<ApiError> noEncontrado(RecursoNoEncontradoException ex) {
+        return error(HttpStatus.NOT_FOUND, ex.getMessage(), List.of());
     }
 
     /**

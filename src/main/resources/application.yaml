@@ -19,6 +19,9 @@ spring:
   jackson:
     deserialization:
       fail-on-unknown-properties: true
+    datatype:
+      enum:
+        fail-on-numbers-for-enums: true
 
 logitrack:
   security:

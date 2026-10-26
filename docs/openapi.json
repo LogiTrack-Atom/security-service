@@ -1,0 +1,588 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LogiTrack — Security Service",
+    "version": "0.2.0",
+    "description": "Identidad, registro y administración stateless. JWT RS256 con issuer logitrack-security y audiencia logitrack-api por defecto. Validación local, duración máxima de 900 s y tolerancia máxima de 60 s. Solo Authorization Bearer autentica: no se admiten cookies, Basic ni access_token en query. Las operaciones no declaradas se deniegan por defecto; no hay listado, cambio de rol ni eliminación de cuentas."
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8082",
+      "description": "Desarrollo local; usar la URL del entorno de destino al importar."
+    }
+  ],
+  "tags": [
+    {
+      "name": "Autenticación",
+      "description": "Registro CLIENTE, emisión JWT y perfil propio."
+    },
+    {
+      "name": "Usuarios",
+      "description": "Altas y consultas exclusivas de ADMIN."
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/api/v1/auth/register": {
+      "post": {
+        "operationId": "registrarCliente",
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Registrar una cuenta CLIENTE",
+        "security": [],
+        "description": "Pública sin token. Rechaza campos desconocidos, roles y asociaciones. La contraseña cumple el contrato de alta. Un Bearer inválido, si se envía, se rechaza con 401.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegistroRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Cuenta CLIENTE creada.",
+            "headers": {
+              "Location": {
+                "description": "URI relativa de la cuenta; su consulta requiere ADMIN.",
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "operationId": "autenticar",
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Verificar credenciales y emitir JWT RS256",
+        "security": [],
+        "description": "Email normalizado y contraseña sin alterar. Cuenta inexistente y contraseña incorrecta producen el mismo 401 genérico. JWT con sub UUID de usuario, roles, iss, aud, iat, nbf y exp. Duración por defecto 900 segundos. Sin refresh token ni discovery OIDC.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bearer emitido; renovar con un nuevo login.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Incluye no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "operationId": "obtenerUsuarioAutenticado",
+        "tags": [
+          "Autenticación"
+        ],
+        "summary": "Consultar la cuenta del sub autenticado",
+        "description": "Permitido a ADMIN, CLIENTE y REPARTIDOR. No acepta otra identidad por query. Una cuenta retirada de la base produce 401.",
+        "responses": {
+          "200": {
+            "description": "Perfil de la cuenta autenticada.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Incluye no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    },
+    "/api/v1/usuarios": {
+      "post": {
+        "operationId": "crearUsuarioAdministrativo",
+        "tags": [
+          "Usuarios"
+        ],
+        "summary": "Crear una cuenta desde administración",
+        "x-required-role": "ADMIN",
+        "description": "Solo ADMIN. Acepta ADMIN, CLIENTE o REPARTIDOR en rol. Un correo ocupado produce 409 y conserva la cuenta existente; no cambia contraseñas ni roles. UUID y auditoría son generados por el servicio.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsuarioCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Cuenta creada con el rol solicitado.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Incluye no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Location": {
+                "description": "URI relativa de la cuenta; su consulta requiere ADMIN.",
+                "schema": {
+                  "type": "string",
+                  "format": "uri-reference"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "409": {
+            "$ref": "#/components/responses/Error409"
+          },
+          "415": {
+            "$ref": "#/components/responses/Error415"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    },
+    "/api/v1/usuarios/{id}": {
+      "get": {
+        "operationId": "obtenerUsuarioAdministrativo",
+        "tags": [
+          "Usuarios"
+        ],
+        "summary": "Consultar identidad y rol para una vinculación",
+        "x-required-role": "ADMIN",
+        "description": "Solo ADMIN, incluso si otro rol consulta su propio UUID. Permite comprobar la cuenta antes de una asociación local en shipment o courier; no guarda esas asociaciones.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "UUID de usuario a consultar. Un valor no convertible produce 400.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cuenta encontrada sin contraseña ni hash.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Incluye no-store.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsuarioResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/Error400"
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          },
+          "403": {
+            "$ref": "#/components/responses/Error403"
+          },
+          "404": {
+            "$ref": "#/components/responses/Error404"
+          },
+          "500": {
+            "$ref": "#/components/responses/Error500"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "RS256. Roles firmados ADMIN, CLIENTE o REPARTIDOR. No incluye identidad de cliente/repartidor ni consulta HTTP de validación."
+      }
+    },
+    "schemas": {
+      "Rol": {
+        "type": "string",
+        "enum": [
+          "ADMIN",
+          "CLIENTE",
+          "REPARTIDOR"
+        ]
+      },
+      "RegistroRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254,
+            "description": "Se eliminan espacios externos y se convierte a minúsculas con Locale.ROOT. Único en MySQL."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true,
+            "minLength": 12,
+            "maxLength": 72,
+            "description": "Sin recortar ni normalizar. Máximo 72 bytes UTF-8 antes de BCrypt.",
+            "x-max-utf8-bytes": 72
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254,
+            "description": "Se eliminan espacios externos y se convierte a minúsculas con Locale.ROOT. Único en MySQL."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true,
+            "minLength": 1,
+            "maxLength": 72,
+            "description": "No vacía; no aplica el mínimo de 12 caracteres del alta. Máximo 72 bytes UTF-8.",
+            "x-max-utf8-bytes": 72
+          }
+        }
+      },
+      "UsuarioCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email",
+          "password",
+          "rol"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254,
+            "description": "Se eliminan espacios externos y se convierte a minúsculas con Locale.ROOT. Único en MySQL."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "writeOnly": true,
+            "minLength": 12,
+            "maxLength": 72,
+            "description": "Sin recortar ni normalizar. Máximo 72 bytes UTF-8 antes de BCrypt.",
+            "x-max-utf8-bytes": 72
+          },
+          "rol": {
+            "$ref": "#/components/schemas/Rol"
+          }
+        },
+        "description": "Solo ADMIN. Un rol singular obligatorio. No admite UUID, hash, auditoría ni identidades de dominio."
+      },
+      "UsuarioResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "email",
+          "roles",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "readOnly": true,
+            "description": "UUID de usuario, independiente de cliente o repartidor."
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "readOnly": true
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Rol"
+            },
+            "minItems": 1,
+            "maxItems": 1,
+            "uniqueItems": true,
+            "readOnly": true
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "readOnly": true
+          }
+        }
+      },
+      "TokenResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "accessToken",
+          "tokenType",
+          "expiresIn"
+        ],
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "description": "JWT RS256. Tratar como credencial; no registrar."
+          },
+          "tokenType": {
+            "type": "string",
+            "enum": [
+              "Bearer"
+            ]
+          },
+          "expiresIn": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 900,
+            "default": 900
+          }
+        }
+      },
+      "ApiError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "timestamp",
+          "status",
+          "error",
+          "mensaje",
+          "detalles"
+        ],
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "mensaje": {
+            "type": "string"
+          },
+          "detalles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "Errores uniformes de MVC y filtros; no contienen credenciales, SQL ni stack traces."
+      }
+    },
+    "responses": {
+      "Error400": {
+        "description": "JSON, campos, credenciales o parámetro UUID inválidos. No se reproducen valores sensibles.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "Error401": {
+        "description": "Bearer ausente, inválido o vencido; credenciales incorrectas o cuenta del perfil inexistente.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        },
+        "headers": {
+          "WWW-Authenticate": {
+            "description": "Bearer",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Error403": {
+        "description": "Rol sin permiso. La autorización se ejecuta antes de validar el cuerpo o consultar datos.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "Error404": {
+        "description": "El administrador autorizado consultó una cuenta inexistente.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "Error409": {
+        "description": "Correo ocupado o conflicto de persistencia; la cuenta existente no se modifica.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "Error415": {
+        "description": "Content-Type no admitido.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      },
+      "Error500": {
+        "description": "Fallo interno sin exponer detalles de implementación.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ApiError"
+            }
+          }
+        }
+      }
+    }
+  }
+}

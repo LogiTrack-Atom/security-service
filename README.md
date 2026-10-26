@@ -7,7 +7,7 @@ Responsable principal: [MaxDZ-10](https://github.com/MaxDZ-10).
 
 La aplicación implementa registro CLIENTE, usuarios UUID, contraseñas con hash, bootstrap ADMIN y autenticación JWT RS256. Usa Java 25, Spring Boot 4.1.1 y MySQL 8.4.11. Maven Wrapper fija Maven 3.10.0. Versión del servicio: 0.2.0-SNAPSHOT.
 
-El registro corresponde a la [issue #1](https://github.com/LogiTrack-Atom/security-service/issues/1), y login, JWT y perfil autenticado a la [issue #2](https://github.com/LogiTrack-Atom/security-service/issues/2). La administración REST de usuarios continúa en la [issue #3](https://github.com/LogiTrack-Atom/security-service/issues/3). Config Client y la imagen Docker de la aplicación continúan en la [issue #4](https://github.com/LogiTrack-Atom/security-service/issues/4). Las rutas de administración permanecen denegadas hasta completar sus reglas.
+El registro corresponde a la [issue #1](https://github.com/LogiTrack-Atom/security-service/issues/1); login, JWT y perfil autenticado, a la [issue #2](https://github.com/LogiTrack-Atom/security-service/issues/2); y la administración REST de usuarios, a la [issue #3](https://github.com/LogiTrack-Atom/security-service/issues/3). Config Client y la imagen Docker de la aplicación continúan en la [issue #4](https://github.com/LogiTrack-Atom/security-service/issues/4).
 
 Los [contratos compartidos](https://github.com/LogiTrack-Atom/shipment-service/blob/develop/docs/sprint02/Contratos_tecnicos.md) y el [Project común](https://github.com/orgs/LogiTrack-Atom/projects/1) coordinan los cinco repositorios. El Compose general se mantiene en shipment-service.
 
@@ -15,8 +15,8 @@ Los [contratos compartidos](https://github.com/LogiTrack-Atom/shipment-service/b
 
 | Componente | Responsabilidad |
 | --- | --- |
-| controller | Frontera HTTP y validación del registro |
-| dto | Entrada limitada a email/password y respuestas sin credenciales |
+| controller | Registro, login, perfil y operaciones administrativas |
+| dto | Entradas específicas de cada operación y respuestas sin credenciales |
 | service / service.impl | Unicidad, hash, rol de alta y transacciones |
 | repository / entity | Persistencia y auditoría de usuarios |
 | mapper | Conversión a datos públicos |
@@ -25,6 +25,7 @@ Los [contratos compartidos](https://github.com/LogiTrack-Atom/shipment-service/b
 | exception / validation | ApiError y límites de entrada |
 | docker/mysql/init | Esquema inicial versionado |
 | src/test | Pruebas unitarias y MySQL aislado mediante Testcontainers |
+| docs/openapi.json | Contrato OpenAPI versionado de autenticación y administración |
 
 Las clases y los métodos públicos incluyen Javadoc con reglas, parámetros y retornos aplicables. El UUID de usuario es independiente del UUID de cliente o repartidor; este servicio no contiene relaciones JPA hacia otras bases.
 
@@ -74,6 +75,41 @@ Los tokens contienen UUID de usuario en `sub`, roles persistidos en `roles`, `is
 El decoder permite exclusivamente RS256 y valida firma, emisor, audiencia, tiempos, UUID canónico y roles conocidos. Exige exp e iat y rechaza vidas superiores al límite configurado. Convierte los roles a `ROLE_ADMIN`, `ROLE_CLIENTE` o `ROLE_REPARTIDOR`; Spring Security agrega además el factor de autenticación Bearer. El sub no representa automáticamente un cliente ni un repartidor.
 
 Los tokens vencidos fuera de tolerancia, alterados, sin firma, firmados con otra clave o con algoritmo diferente se rechazan con 401 y ApiError. El token se admite solo en la cabecera Authorization. No se implementan refresh tokens ni discovery OIDC. Para renovar el acceso se realiza un nuevo login. Los demás servicios validarán localmente con la clave pública y los mismos parámetros; no necesitan consultar a security por cada token.
+
+## Administración de usuarios
+
+Las dos operaciones administrativas requieren `Authorization: Bearer <accessToken>` con rol ADMIN. El primer administrador se prepara con el procedimiento del apartado **Primer administrador**; después inicia sesión mediante `/api/v1/auth/login`.
+
+`POST /api/v1/usuarios`, con `Content-Type: application/json`:
+
+```json
+{
+  "email": "repartidor@example.com",
+  "password": "FraseDeEjemploParaEntornoLocal",
+  "rol": "REPARTIDOR"
+}
+```
+
+El campo singular `rol` es obligatorio y acepta exactamente ADMIN, CLIENTE o REPARTIDOR. No se admiten ordinales numéricos, listas, campos desconocidos, UUID ni fechas impuestas por el solicitante. La política y normalización de credenciales coincide con el registro público. La respuesta 201 incluye los datos seguros de la cuenta y `Location: /api/v1/usuarios/{id}`. El correo existente produce 409 y conserva su rol, contraseña y auditoría; este endpoint crea cuentas y no actualiza las existentes.
+
+`GET /api/v1/usuarios/{id}` devuelve UUID de usuario, email canónico, roles y fechas. ADMIN puede utilizar esta consulta para verificar una cuenta antes de asociarla en shipment o courier. Un UUID válido sin cuenta devuelve 404 y un parámetro no convertible a UUID devuelve 400. El servicio no guarda asociaciones con identidades de esos dominios.
+
+| Operación | Sin token válido | ADMIN | CLIENTE / REPARTIDOR |
+| --- | --- | --- | --- |
+| POST /api/v1/auth/register | Pública sin token; crea CLIENTE | Igual registro público | Igual registro público |
+| POST /api/v1/auth/login | Pública sin token; verifica credenciales | Igual login | Igual login |
+| GET /api/v1/auth/me | 401 | Perfil propio | Perfil propio |
+| POST /api/v1/usuarios | 401 | Alta con rol explícito | 403 |
+| GET /api/v1/usuarios/{id} | 401 | Consulta administrativa | 403, incluso al consultar su UUID |
+| Otras rutas o métodos | 401 | 403 | 403 |
+
+Un Bearer inválido se rechaza también cuando acompaña una petición a las rutas públicas. Las denegaciones ocurren antes de acceder al controller; un rol sin permiso recibe 403 aunque el cuerpo o el UUID sean inválidos. Ambas operaciones administrativas evitan caché y no devuelven contraseñas ni hashes. Las respuestas mantienen `ApiError` para 400, 401, 403, 404, 409 y 415.
+
+La API no conserva autenticación entre solicitudes. Cookies como JSESSIONID, HTTP Basic y `access_token` en la query no reemplazan la cabecera Bearer. Un token correctamente firmado también se rechaza si venció fuera de la tolerancia configurada. Los validadores usan los roles firmados durante la emisión hasta que expira el token; no implementan revocación inmediata ni consultan la base para autorizar cada solicitud. No se exponen edición de roles, eliminación de cuentas ni listado general de usuarios en este alcance.
+
+## Contrato de API
+
+[docs/openapi.json](docs/openapi.json) describe las cinco operaciones, cuerpos, roles, Bearer JWT, respuestas seguras y errores. Es un contrato OpenAPI 3.1 importable en herramientas compatibles y Postman. La documentación se distribuye con el repositorio y no habilita rutas adicionales del servicio.
 
 ## Claves externas
 
@@ -167,7 +203,7 @@ Suite completa con MySQL 8.4.11 aislado y el esquema real:
 ./mvnw clean verify
 ```
 
-Testcontainers utiliza un puerto aleatorio y credenciales efímeras de prueba. No usa el MySQL local anterior ni los volúmenes del equipo. Verifica API y filtros reales, restricciones, usuario MySQL limitado, concurrencia, bootstrap, login y perfil JWT; no utiliza transacciones de prueba que oculten el commit. Las claves de las pruebas se generan en un directorio temporal y se retiran al finalizar el proceso, sin utilizar las claves del operador. Ryuk elimina sus contenedores al terminar. Si Docker Desktop no es detectado automáticamente, se puede indicar su socket mediante `DOCKER_HOST`.
+Testcontainers utiliza un puerto aleatorio y credenciales efímeras de prueba. No usa el MySQL local anterior ni los volúmenes del equipo. Verifica API y filtros reales, restricciones, usuario MySQL limitado, concurrencia, bootstrap, login, perfil JWT y administración por rol; no utiliza transacciones de prueba que oculten el commit. Las pruebas de administración utilizan tokens realmente firmados y procesados por el decoder, sin sustituirlo mediante usuarios simulados. Las claves de las pruebas se generan en un directorio temporal y se retiran al finalizar el proceso, sin utilizar las claves del operador. Ryuk elimina sus contenedores al terminar. Si Docker Desktop no es detectado automáticamente, se puede indicar su socket mediante `DOCKER_HOST`.
 
 Los reportes se generan en `target/surefire-reports` y `target/failsafe-reports`. Mockito declara su agente explícitamente en Surefire y Failsafe; Failsafe también habilita el acceso nativo requerido por Testcontainers en Java 25.
 
@@ -183,4 +219,4 @@ El JAR de esta versión se puede ejecutar con `java -jar target/security-service
 
 ## Colaboración
 
-Las ramas por tarea parten de `develop` y los PR se integran en `develop`. Cada issue se cierra después de verificar aceptación e integración; `main` continúa como rama predeterminada. Se mantienen alineadas las prioridades Alta/Media del Project con las etiquetas priority:P0/P1.
+Las ramas por tarea se crean vinculadas desde su issue, parten de `develop` e incluyen el número de issue: `feature/<numero>-<descripcion>`. Por ejemplo, `gh issue develop 3 --base develop --name feature/3-administracion-usuarios --checkout`. Antes de implementarlas se comprueba su asociación en Development; al abrir el PR se verifica también ese enlace, dado que el destino es `develop` y los números de PR se asignan independientemente. Cada issue se cierra después de verificar aceptación e integración; `main` continúa como rama predeterminada. Se mantienen alineadas las prioridades Alta/Media del Project con las etiquetas priority:P0/P1.

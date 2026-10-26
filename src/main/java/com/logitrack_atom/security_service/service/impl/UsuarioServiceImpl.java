@@ -1,25 +1,28 @@
 package com.logitrack_atom.security_service.service.impl;
 
 import com.logitrack_atom.security_service.dto.request.RegistroRequest;
+import com.logitrack_atom.security_service.dto.request.UsuarioCreateRequest;
 import com.logitrack_atom.security_service.dto.response.UsuarioResponse;
 import com.logitrack_atom.security_service.entity.Usuario;
 import com.logitrack_atom.security_service.enums.Rol;
 import com.logitrack_atom.security_service.exception.EmailDuplicadoException;
+import com.logitrack_atom.security_service.exception.RecursoNoEncontradoException;
 import com.logitrack_atom.security_service.mapper.UsuarioMapper;
 import com.logitrack_atom.security_service.repository.UsuarioRepository;
 import com.logitrack_atom.security_service.service.UsuarioService;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import java.util.UUID;
 
 /**
- * Implementa altas transaccionales sin permitir que la entrada pública elija roles.
+ * Implementa registro y administración transaccional sin exponer credenciales.
  *
  * <p>La restricción única de MySQL complementa la consulta previa y protege
  * también los registros concurrentes con el mismo correo.</p>
  *
  * @author MaxDz
- * @version 0.1.0
+ * @version 0.2.0
  * @see UsuarioService
  * @see UsuarioRepository
  */
@@ -45,9 +48,34 @@ public class UsuarioServiceImpl implements UsuarioService {
     @Override
     @Transactional
     public UsuarioResponse registrar(RegistroRequest request) {
-        if (usuarios.existsByEmail(request.email())) throw new EmailDuplicadoException();
-        Usuario usuario = new Usuario(request.email(), encoder.encode(request.password()), Rol.CLIENTE);
-        return mapper.toResponse(usuarios.saveAndFlush(usuario));
+        return crearCuenta(request.email(), request.password(), Rol.CLIENTE);
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional
+    public UsuarioResponse crearAdministrativo(UsuarioCreateRequest request) {
+        return crearCuenta(request.email(), request.password(), request.rol());
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(readOnly = true)
+    public UsuarioResponse obtener(UUID id) {
+        return usuarios.findById(id).map(mapper::toResponse).orElseThrow(RecursoNoEncontradoException::new);
+    }
+
+    /**
+     * Comparte unicidad y codificación sin mezclar las políticas de elección de rol.
+     * @param email correo canónico validado
+     * @param password contraseña original validada
+     * @param rol rol impuesto por registro o elegido por la operación administrativa
+     * @return cuenta persistida sin credenciales
+     * @throws EmailDuplicadoException si el correo ya está registrado
+     */
+    private UsuarioResponse crearCuenta(String email, String password, Rol rol) {
+        if (usuarios.existsByEmail(email)) throw new EmailDuplicadoException();
+        return mapper.toResponse(usuarios.saveAndFlush(new Usuario(email, encoder.encode(password), rol)));
     }
 
     /** {@inheritDoc} */
