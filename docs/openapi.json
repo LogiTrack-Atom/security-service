@@ -19,6 +19,10 @@
     {
       "name": "Usuarios",
       "description": "Altas y consultas exclusivas de ADMIN."
+    },
+    {
+      "name": "Salud",
+      "description": "Comprobación operativa mínima para el contenedor."
     }
   ],
   "security": [
@@ -299,6 +303,42 @@
           }
         }
       }
+    },
+    "/actuator/health": {
+      "get": {
+        "operationId": "consultarSalud",
+        "tags": [
+          "Salud"
+        ],
+        "summary": "Consultar salud agregada sin detalles",
+        "security": [],
+        "description": "Pública sin token. Sin componentes, secretos ni diagnóstico de configuración. Un Bearer inválido enviado en la petición se rechaza con 401.",
+        "responses": {
+          "200": {
+            "description": "Componente disponible.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Componente sin salud operativa.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Error401"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -502,6 +542,25 @@
           }
         },
         "description": "Errores uniformes de MVC y filtros; no contienen credenciales, SQL ni stack traces."
+      },
+      "HealthResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Nombres de grupos de salud; sin sus componentes o detalles."
+          }
+        }
       }
     },
     "responses": {

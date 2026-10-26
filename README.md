@@ -7,7 +7,7 @@ Responsable principal: [MaxDZ-10](https://github.com/MaxDZ-10).
 
 La aplicación implementa registro CLIENTE, usuarios UUID, contraseñas con hash, bootstrap ADMIN y autenticación JWT RS256. Usa Java 25, Spring Boot 4.1.1 y MySQL 8.4.11. Maven Wrapper fija Maven 3.10.0. Versión del servicio: 0.2.0-SNAPSHOT.
 
-El registro corresponde a la [issue #1](https://github.com/LogiTrack-Atom/security-service/issues/1); login, JWT y perfil autenticado, a la [issue #2](https://github.com/LogiTrack-Atom/security-service/issues/2); y la administración REST de usuarios, a la [issue #3](https://github.com/LogiTrack-Atom/security-service/issues/3). Config Client y la imagen Docker de la aplicación continúan en la [issue #4](https://github.com/LogiTrack-Atom/security-service/issues/4).
+El registro corresponde a la [issue #1](https://github.com/LogiTrack-Atom/security-service/issues/1); login, JWT y perfil autenticado, a la [issue #2](https://github.com/LogiTrack-Atom/security-service/issues/2); y la administración REST de usuarios, a la [issue #3](https://github.com/LogiTrack-Atom/security-service/issues/3). La configuración centralizada y la imagen Docker corresponden a la [issue #4](https://github.com/LogiTrack-Atom/security-service/issues/4).
 
 Los [contratos compartidos](https://github.com/LogiTrack-Atom/shipment-service/blob/develop/docs/sprint02/Contratos_tecnicos.md) y el [Project común](https://github.com/orgs/LogiTrack-Atom/projects/1) coordinan los cinco repositorios. El Compose general se mantiene en shipment-service.
 
@@ -101,6 +101,7 @@ El campo singular `rol` es obligatorio y acepta exactamente ADMIN, CLIENTE o REP
 | GET /api/v1/auth/me | 401 | Perfil propio | Perfil propio |
 | POST /api/v1/usuarios | 401 | Alta con rol explícito | 403 |
 | GET /api/v1/usuarios/{id} | 401 | Consulta administrativa | 403, incluso al consultar su UUID |
+| GET /actuator/health | Pública sin detalles | Igual salud pública | Igual salud pública |
 | Otras rutas o métodos | 401 | 403 | 403 |
 
 Un Bearer inválido se rechaza también cuando acompaña una petición a las rutas públicas. Las denegaciones ocurren antes de acceder al controller; un rol sin permiso recibe 403 aunque el cuerpo o el UUID sean inválidos. Ambas operaciones administrativas evitan caché y no devuelven contraseñas ni hashes. Las respuestas mantienen `ApiError` para 400, 401, 403, 404, 409 y 415.
@@ -109,7 +110,7 @@ La API no conserva autenticación entre solicitudes. Cookies como JSESSIONID, HT
 
 ## Contrato de API
 
-[docs/openapi.json](docs/openapi.json) describe las cinco operaciones, cuerpos, roles, Bearer JWT, respuestas seguras y errores. Es un contrato OpenAPI 3.1 importable en herramientas compatibles y Postman. La documentación se distribuye con el repositorio y no habilita rutas adicionales del servicio.
+[docs/openapi.json](docs/openapi.json) describe las seis operaciones, incluida la salud mínima, cuerpos, roles, Bearer JWT, respuestas seguras y errores. Es un contrato OpenAPI 3.1 importable en herramientas compatibles y Postman. La documentación se distribuye con el repositorio. Actuator expone únicamente la salud sin detalles; los endpoints de configuración permanecen denegados.
 
 ## Claves externas
 
@@ -124,7 +125,7 @@ export JWT_PUBLIC_KEY_LOCATION="file:$HOME/.local/share/logitrack/jwt-keys/jwt-p
 
 El script exige un directorio nuevo y genera RSA de 3072 bits con permisos restringidos al propietario. Para reutilizar un par existente se configuran directamente sus ubicaciones, manteniendo la privada PKCS#8 y la pública X.509. El servicio admite RSA desde 2048 bits y comprueba la correspondencia del par al arrancar. Las ubicaciones deben ser archivos locales; no se descargan claves por HTTP ni se generan claves de reemplazo durante el arranque.
 
-Solo security recibe la privada. Shipment y courier recibirán exclusivamente la pública mediante sus archivos montados. Las rutas se suministran por entorno, y `.gitignore` y `.dockerignore` excluyen claves, almacenes y secretos. El repositorio y el JAR no contienen un par privado. La futura imagen Docker se verificará en la issue #4; esta etapa prepara sus exclusiones y el uso de archivos externos.
+Solo security recibe la privada. Shipment y courier recibirán exclusivamente la pública mediante sus archivos montados. Las rutas se suministran por entorno, y `.gitignore` y `.dockerignore` excluyen claves, almacenes y secretos. El repositorio y el JAR no contienen un par privado. La imagen utiliza montajes externos y un contexto con archivos permitidos explícitamente. La preparación de permisos y el procedimiento de ejecución se describen en [Configuración remota y Docker](docs/Configuracion_remota.md).
 
 | Variable | Valor |
 | --- | --- |
@@ -166,10 +167,10 @@ export DB_PASSWORD="$MYSQL_PASSWORD"
 Esperar a que MySQL termine la inicialización; puede comprobarse con `docker logs logitrack-security-mysql`. Con las dos variables de ubicación de claves del apartado anterior configuradas:
 
 ```bash
-./mvnw spring-boot:run
+SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
 ```
 
-La API inicia en el puerto 8082. El script SQL se ejecuta al inicializar un volumen nuevo. En un volumen existente no vuelve a aplicar cambios de esquema: Hibernate usa `ddl-auto=validate` y rechaza divergencias. Los cambios posteriores requieren una migración versionada. No es necesario borrar datos para ejecutar las pruebas.
+El perfil local explícito inicia la API en el puerto 8082 sin Config Server. Dev y prod requieren configuración remota. El script SQL se ejecuta al inicializar un volumen nuevo. En un volumen existente no vuelve a aplicar cambios de esquema: Hibernate usa `ddl-auto=validate` y rechaza divergencias. Los cambios posteriores requieren una migración versionada. No es necesario borrar datos para ejecutar las pruebas.
 
 Para usar un MySQL ya provisto, un administrador crea `security_db`, un usuario exclusivo `security_app` con acceso únicamente a esa base y ejecuta `docker/mysql/init/001-schema.sql` dentro de ella. La aplicación recibe exclusivamente las credenciales de ese usuario. Los secretos están ausentes de `.env.example`; Spring no carga archivos `.env` automáticamente, por lo que deben exportarse las variables o suministrarse con el mecanismo del entorno.
 
@@ -182,7 +183,7 @@ read -r -p 'Email del primer administrador: ' BOOTSTRAP_ADMIN_EMAIL
 read -r -s -p 'Contraseña del primer administrador: ' BOOTSTRAP_ADMIN_PASSWORD
 printf '\n'
 export BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD
-BOOTSTRAP_ADMIN_ENABLED=true ./mvnw spring-boot:run
+SPRING_PROFILES_ACTIVE=local BOOTSTRAP_ADMIN_ENABLED=true ./mvnw spring-boot:run
 ```
 
 Las credenciales deben cumplir el mismo contrato del registro. Si faltan o son inválidas, el arranque falla con un mensaje que no revela la contraseña. Si ya existe ADMIN con ese correo, se conservan UUID, hash y fechas; no se restablece su contraseña. Si el correo pertenece a CLIENTE o REPARTIDOR, el arranque falla y no cambia su rol. Una colisión de unicidad entre instancias concurrentes puede detener una de ellas de forma segura; al reiniciar encuentra el administrador persistido.
@@ -203,7 +204,7 @@ Suite completa con MySQL 8.4.11 aislado y el esquema real:
 ./mvnw clean verify
 ```
 
-Testcontainers utiliza un puerto aleatorio y credenciales efímeras de prueba. No usa el MySQL local anterior ni los volúmenes del equipo. Verifica API y filtros reales, restricciones, usuario MySQL limitado, concurrencia, bootstrap, login, perfil JWT y administración por rol; no utiliza transacciones de prueba que oculten el commit. Las pruebas de administración utilizan tokens realmente firmados y procesados por el decoder, sin sustituirlo mediante usuarios simulados. Las claves de las pruebas se generan en un directorio temporal y se retiran al finalizar el proceso, sin utilizar las claves del operador. Ryuk elimina sus contenedores al terminar. Si Docker Desktop no es detectado automáticamente, se puede indicar su socket mediante `DOCKER_HOST`.
+Testcontainers utiliza un puerto aleatorio y credenciales efímeras de prueba. No usa el MySQL local anterior ni los volúmenes del equipo. Verifica API y filtros reales, restricciones, usuario MySQL limitado, concurrencia, bootstrap, login, perfil JWT y administración por rol; no utiliza transacciones de prueba que oculten el commit. Las pruebas de administración utilizan tokens realmente firmados y procesados por el decoder, sin sustituirlo mediante usuarios simulados. Las claves de las pruebas se generan en un directorio temporal y se retiran al finalizar el proceso, sin utilizar las claves del operador. La suite también levanta un Config Server real con Git temporal y verifica dev/prod, propiedades enlazadas a beans y fallos de arranque sin servidor o secretos. Esos fixtures no se incluyen en producción. Ryuk elimina sus contenedores al terminar. Si Docker Desktop no es detectado automáticamente, se puede indicar su socket mediante `DOCKER_HOST`.
 
 Los reportes se generan en `target/surefire-reports` y `target/failsafe-reports`. Mockito declara su agente explícitamente en Surefire y Failsafe; Failsafe también habilita el acceso nativo requerido por Testcontainers en Java 25.
 
@@ -215,7 +216,7 @@ Para verificar y generar Javadoc:
 
 La documentación HTML queda dentro de `target/` y no se versiona. La generación de Javadoc rechaza advertencias y errores de documentación. Los resultados efectivamente ejecutados y el commit verificado se registran en la PR de la issue.
 
-El JAR de esta versión se puede ejecutar con `java -jar target/security-service-0.2.0-SNAPSHOT.jar`, manteniendo las mismas variables de MySQL y claves. Su verificación de arranque no requiere Config Server en esta etapa; la integración centralizada corresponde a la issue #4.
+El JAR de esta versión se puede ejecutar con `java -jar target/security-service-0.2.0-SNAPSHOT.jar`, manteniendo las mismas variables de MySQL y claves. Por defecto selecciona dev y requiere Config Server; `SPRING_PROFILES_ACTIVE=local` habilita únicamente el modo local documentado. Los perfiles, propiedades esperadas, build y ejecución del contenedor se detallan en [Configuración remota y Docker](docs/Configuracion_remota.md).
 
 ## Colaboración
 
