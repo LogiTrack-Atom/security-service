@@ -6,12 +6,12 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 /**
  * Inicia el servicio de identidad de LogiTrack.
  *
- * <p>El registro público es la única operación de negocio habilitada en esta
- * etapa. Se excluye el usuario automático de desarrollo de Spring Security;
- * los usuarios de la aplicación se almacenan en su base independiente.</p>
+ * <p>Expone registro, login e identidad autenticada con JWT. Se excluye el
+ * usuario automático de desarrollo de Spring Security; las cuentas se
+ * almacenan en una base independiente y las claves se cargan de archivos externos.</p>
  *
  * @author MaxDz
- * @version 0.1.0
+ * @version 0.2.0
  */
 @SpringBootApplication(excludeName = "org.springframework.boot.security.autoconfigure.UserDetailsServiceAutoConfiguration")
 public class SecurityServiceApplication {

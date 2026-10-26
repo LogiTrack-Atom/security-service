@@ -3,6 +3,7 @@ package com.logitrack_atom.security_service.exception;
 import com.logitrack_atom.security_service.dto.response.ApiError;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -25,6 +26,18 @@ import java.util.List;
 public class GlobalExceptionHandler {
     /** Crea el traductor global de errores de registro. */
     public GlobalExceptionHandler() { }
+
+    /**
+     * Rechaza credenciales incorrectas sin revelar la existencia de la cuenta.
+     * @return error 401 genérico y sin almacenamiento en caché
+     */
+    @ExceptionHandler(CredencialesInvalidasException.class)
+    public ResponseEntity<ApiError> credencialesInvalidas() {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .body(new ApiError(Instant.now(), 401, "Unauthorized", "Credenciales inválidas.", List.of()));
+    }
 
     /**
      * Conserva los estados del protocolo para métodos o tipos de contenido no admitidos.

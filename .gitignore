@@ -11,3 +11,8 @@ target/
 .settings/
 keys/
 secrets/
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks

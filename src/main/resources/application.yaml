@@ -21,6 +21,13 @@ spring:
       fail-on-unknown-properties: true
 
 logitrack:
+  security:
+    issuer: ${JWT_ISSUER:logitrack-security}
+    audience: ${JWT_AUDIENCE:logitrack-api}
+    access-token-ttl: ${JWT_ACCESS_TOKEN_TTL:15m}
+    clock-skew: ${JWT_CLOCK_SKEW:60s}
+    private-key-location: ${JWT_PRIVATE_KEY_LOCATION}
+    public-key-location: ${JWT_PUBLIC_KEY_LOCATION}
   bootstrap-admin:
     enabled: ${BOOTSTRAP_ADMIN_ENABLED:false}
     email: ${BOOTSTRAP_ADMIN_EMAIL:}
