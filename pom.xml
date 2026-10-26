@@ -10,7 +10,7 @@
     </parent>
     <groupId>com.logitrack-atom</groupId>
     <artifactId>security-service</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.2.0-SNAPSHOT</version>
     <name>security-service</name>
     <description>Identidad y registro seguro de usuarios de LogiTrack.</description>
     <properties>
@@ -32,6 +32,10 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security-oauth2-resource-server</artifactId>
         </dependency>
         <dependency>
             <groupId>com.mysql</groupId>

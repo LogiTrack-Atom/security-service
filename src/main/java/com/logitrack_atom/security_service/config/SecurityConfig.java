@@ -8,6 +8,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.HttpHeaders;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.access.AccessDeniedHandler;
+import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -19,13 +24,13 @@ import java.time.Instant;
 import java.util.List;
 
 /**
- * Define la frontera de seguridad de la etapa de registro público.
+ * Define la frontera stateless de registro, autenticación e identidad JWT.
  *
  * <p>La API no usa sesiones, formularios ni autenticación por cookies. Las rutas
- * restantes permanecen denegadas hasta incorporar JWT en la siguiente issue.</p>
+ * restantes permanecen denegadas hasta incorporar sus reglas de administración.</p>
  *
  * @author MaxDz
- * @version 0.1.0
+ * @version 0.2.0
  */
 @Configuration
 public class SecurityConfig {
@@ -33,14 +38,23 @@ public class SecurityConfig {
     public SecurityConfig() { }
 
     /**
-     * Habilita exclusivamente el registro y mantiene errores coherentes con ApiError.
+     * Habilita registro/login públicos y protege la consulta de identidad con JWT.
      * @param http constructor de seguridad web
      * @param mapper serializador JSON de la aplicación
+     * @param decoder validador local de JWT
+     * @param converter conversor de roles de negocio
      * @return cadena de filtros stateless
      * @throws Exception si no puede construirse la configuración de seguridad
      */
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper mapper) throws Exception {
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, ObjectMapper mapper,
+                                                   JwtDecoder decoder, JwtAuthenticationConverter converter) throws Exception {
+        AuthenticationEntryPoint unauthorized = (request, response, ex) -> {
+            response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+            escribirError(response, mapper, HttpStatus.UNAUTHORIZED, "Autenticación requerida.");
+        };
+        AccessDeniedHandler forbidden = (request, response, ex) ->
+                escribirError(response, mapper, HttpStatus.FORBIDDEN, "Acceso denegado.");
         return http.csrf(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
@@ -49,13 +63,14 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/register").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").hasAnyRole("ADMIN", "CLIENTE", "REPARTIDOR")
                         .anyRequest().denyAll())
                 .exceptionHandling(errors -> errors
-                        .authenticationEntryPoint((request, response, ex) ->
-                                escribirError(response, mapper, HttpStatus.UNAUTHORIZED, "Autenticación requerida."))
-                        .accessDeniedHandler((request, response, ex) ->
-                                escribirError(response, mapper, HttpStatus.FORBIDDEN, "Acceso denegado.")))
+                        .authenticationEntryPoint(unauthorized).accessDeniedHandler(forbidden))
+                .oauth2ResourceServer(resource -> resource
+                        .authenticationEntryPoint(unauthorized).accessDeniedHandler(forbidden)
+                        .jwt(jwt -> jwt.decoder(decoder).jwtAuthenticationConverter(converter)))
                 .build();
     }
 

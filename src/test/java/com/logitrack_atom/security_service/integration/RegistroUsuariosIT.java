@@ -3,27 +3,11 @@ package com.logitrack_atom.security_service.integration;
 import com.logitrack_atom.security_service.bootstrap.AdminBootstrapRunner;
 import com.logitrack_atom.security_service.dto.request.RegistroRequest;
 import com.logitrack_atom.security_service.enums.Rol;
-import com.logitrack_atom.security_service.repository.UsuarioRepository;
-import com.logitrack_atom.security_service.service.UsuarioService;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.context.ApplicationContext;
 import org.springframework.dao.DataAccessException;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.MediaType;
-import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
-import org.springframework.test.web.servlet.MockMvc;
-import org.testcontainers.mysql.MySQLContainer;
-import org.testcontainers.utility.MountableFile;
-import tools.jackson.databind.ObjectMapper;
-import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -44,43 +28,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
  * @author MaxDz
  * @version 0.1.0
  */
-@SpringBootTest
-@AutoConfigureMockMvc
-class RegistroUsuariosIT {
-    private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4.11")
-            .withDatabaseName("security_db").withUsername("security_app")
-            .withPassword(UUID.randomUUID().toString())
-            .withUrlParam("serverTimezone", "UTC")
-            .withCopyFileToContainer(MountableFile.forHostPath(
-                    Path.of("docker/mysql/init/001-schema.sql").toAbsolutePath()),
-                    "/docker-entrypoint-initdb.d/001-schema.sql");
-
-    static { MYSQL.start(); }
-
-    /** Sustituye las conexiones por el MySQL exclusivo de esta suite. */
-    @DynamicPropertySource
-    static void properties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", MYSQL::getJdbcUrl);
-        registry.add("spring.datasource.username", MYSQL::getUsername);
-        registry.add("spring.datasource.password", MYSQL::getPassword);
-        registry.add("logitrack.bootstrap-admin.enabled", () -> false);
-    }
-
-    @Autowired private MockMvc mvc;
-    @Autowired private JdbcTemplate jdbc;
-    @Autowired private UsuarioService service;
-    @Autowired private UsuarioRepository repository;
-    @Autowired private PasswordEncoder encoder;
-    @Autowired private ObjectMapper mapper;
-    @Autowired private ApplicationContext context;
-
-    /** Solo limpia la tabla del contenedor creado por esta suite. */
-    @BeforeEach
-    void limpiar() {
-        assertThat(jdbc.queryForObject("SELECT DATABASE()", String.class)).isEqualTo("security_db");
-        jdbc.update("DELETE FROM usuarios");
-    }
-
+class RegistroUsuariosIT extends MySqlIntegrationSupport {
     /** El alta publica identidad, persiste auditoría y almacena únicamente el hash. */
     @Test
     void registraClienteConPersistenciaReal() throws Exception {
@@ -180,7 +128,7 @@ class RegistroUsuariosIT {
         assertThat(repository.count()).isOne();
     }
 
-    /** Las rutas aún no implementadas no habilitan acceso anónimo ni sesiones. */
+    /** Las rutas de negocio y diagnóstico protegidas no admiten acceso anónimo ni sesiones. */
     @ParameterizedTest
     @ValueSource(strings = {"/api/v1/usuarios", "/api/v1/auth/me", "/actuator/env"})
     void deniegaRutasNoHabilitadas(String path) throws Exception {
