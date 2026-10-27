@@ -94,3 +94,28 @@ La issue #4 requiere además repetir la integración contra las versiones entreg
 - [Spring Cloud 2025.1.4](https://spring.io/blog/2026/10/23/spring-cloud-2025-1-4-has-been-released/).
 - [Config Client y Config Data](https://docs.spring.io/spring-cloud-config/reference/client.html).
 - [Configuración de Jackson en Spring Boot](https://docs.spring.io/spring-boot/how-to/spring-mvc.html).
+
+## Integración con los componentes del equipo — 27/10/2026
+
+Se verificó la imagen de security contra el Config Server de
+[este commit](https://github.com/LogiTrack-Atom/configserver/commit/60d9d8f291faedecf7c65e6dc682673f13ed3622)
+y las propiedades de
+[esta revisión](https://github.com/LogiTrack-Atom/configserver-ms/commit/8a1ff95eab2b7ee025822ee52ff8892d9b40518a).
+El servidor se compiló desde su código y se ejecutó como JAR sobre una JRE en
+contenedor aislado, leyendo GitHub directamente; no se utilizó el fixture de pruebas.
+Esta comprobación no sustituye la construcción de su futura imagen Docker propia.
+
+Ambos perfiles alcanzaron healthy y permitieron login, perfil autenticado y
+alta/consulta administrativa. Conservaron TTL de 900 segundos, diferenciaron
+marcadores y logging, y rechazaron rol numérico, rol en registro público, contraseña
+incorrecta, solicitudes sin token y diagnósticos. Config Server devolvió los
+placeholders de secretos sin resolver, incluso con una variable trampa de DB_PASSWORD
+en su entorno. Los arranques sin servidor, sin privada, sin pública o sin contraseña
+de MySQL terminaron con error. Se retiraron los contenedores, red y secretos de prueba.
+
+La revisión original de propiedades omitía la clave pública y reproducía un fallo
+de arranque. El ajuste se registra en
+[configserver-ms#6](https://github.com/LogiTrack-Atom/configserver-ms/pull/6).
+La imagen ejecutada contiene el código de security del commit
+`88c4ae8aa5158a4c4ea5febc7c780adbd12e2ce4`; la actualización posterior de esta guía
+solo corrige nombres de archivos, marcadores y el registro de la comprobación.
