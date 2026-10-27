@@ -13,12 +13,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.mysql.MySQLContainer;
 import org.testcontainers.utility.MountableFile;
 import tools.jackson.databind.ObjectMapper;
 import java.nio.file.Path;
 import java.util.UUID;
+import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -32,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
+@ActiveProfiles("test")
 abstract class MySqlIntegrationSupport {
     private static final MySQLContainer MYSQL = new MySQLContainer("mysql:8.4.11")
             .withDatabaseName("security_db").withUsername("security_app")
@@ -49,6 +52,14 @@ abstract class MySqlIntegrationSupport {
         registry.add("spring.datasource.password", MYSQL::getPassword);
         registry.add("logitrack.bootstrap-admin.enabled", () -> false);
         TestRsaKeys.registrar(registry);
+    }
+
+    /**
+     * Comparte el contenedor aislado con las pruebas de arranque remoto.
+     * @return propiedades de conexión exclusivas de este proceso de pruebas
+     */
+    static Map<String, Object> databaseProperties() {
+        return Map.of("DB_URL", MYSQL.getJdbcUrl(), "DB_USERNAME", MYSQL.getUsername(), "DB_PASSWORD", MYSQL.getPassword());
     }
 
     /** Frontera HTTP real con filtros de Spring Security. */
