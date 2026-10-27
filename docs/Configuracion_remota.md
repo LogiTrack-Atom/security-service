@@ -6,8 +6,8 @@ Security conserva Java 25 y Spring Boot 4.1.1. Importa el BOM Spring Cloud 2025.
 
 | Perfil | Origen | Uso |
 | --- | --- | --- |
-| dev | Config Server y security-service-dev.yaml | Desarrollo integrado; predeterminado |
-| prod | Config Server y security-service-prod.yaml | Entrega y despliegue |
+| dev | Config Server y security-service-dev.yml | Desarrollo integrado; predeterminado |
+| prod | Config Server y security-service-prod.yml | Entrega y despliegue |
 | local | application-local.yaml | Ejecución explícita sin Config Server |
 | test | Recursos y propiedades aisladas de pruebas | Regresión sin el servidor del equipo |
 
@@ -40,7 +40,7 @@ DiazGab mantiene los YAML de dev/prod en configserver-ms y la aplicación del se
 | logitrack.security.access-token-ttl / clock-skew | 15m / 60s iniciales; límites 900 s y 60 s |
 | logitrack.security.private-key-location / public-key-location | `${JWT_PRIVATE_KEY_LOCATION}` / `${JWT_PUBLIC_KEY_LOCATION}` |
 | logitrack.bootstrap-admin.enabled / email / password | `${BOOTSTRAP_ADMIN_ENABLED:false}`, `${BOOTSTRAP_ADMIN_EMAIL:}`, `${BOOTSTRAP_ADMIN_PASSWORD:}` |
-| logitrack.config.marker | security-dev o security-prod; obligatorio, no sensible |
+| logitrack.config.marker | security-service-dev o security-service-prod; obligatorio, no sensible |
 | logging.level.root / logging.level.com.logitrack_atom | Diferenciados por ambiente; sin registrar credenciales, cuerpos ni tokens |
 | management.endpoints.web.exposure.include | health |
 | management.endpoint.health.show-details / show-components | never |
