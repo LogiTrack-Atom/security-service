@@ -53,3 +53,6 @@ logging:
   level:
     root: INFO
     com.logitrack_atom: INFO
+eureka:
+  client:
+    enabled: false

@@ -34,6 +34,10 @@
             <artifactId>spring-cloud-starter-config</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-actuator</artifactId>
         </dependency>
@@ -104,6 +108,9 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>-javaagent:"${org.mockito:mockito-core:jar}"</argLine>
+                    <systemPropertyVariables>
+                        <eureka.client.enabled>false</eureka.client.enabled>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
             <plugin>
@@ -125,6 +132,9 @@
                 <configuration>
                     <failIfNoTests>true</failIfNoTests>
                     <argLine>-javaagent:"${org.mockito:mockito-core:jar}" --enable-native-access=ALL-UNNAMED</argLine>
+                    <systemPropertyVariables>
+                        <eureka.client.enabled>false</eureka.client.enabled>
+                    </systemPropertyVariables>
                 </configuration>
                 <executions>
                     <execution>
