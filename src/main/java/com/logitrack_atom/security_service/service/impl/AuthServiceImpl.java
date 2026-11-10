@@ -50,11 +50,18 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional(readOnly = true)
     public TokenResponse autenticar(LoginRequest request) {
+        return tokens.emitir(autenticarCuenta(request));
+    }
+
+    /** {@inheritDoc} */
+    @Override
+    @Transactional(readOnly = true)
+    public com.logitrack_atom.security_service.entity.Usuario autenticarCuenta(LoginRequest request) {
         var usuario = usuarios.findByEmail(request.email());
         String hash = usuario.map(value -> value.getPasswordHash()).orElse(hashFicticio);
         boolean coincide = encoder.matches(request.password(), hash);
         if (usuario.isEmpty() || !coincide) throw new CredencialesInvalidasException();
-        return tokens.emitir(usuario.get());
+        return usuario.get();
     }
 
     /** {@inheritDoc} */

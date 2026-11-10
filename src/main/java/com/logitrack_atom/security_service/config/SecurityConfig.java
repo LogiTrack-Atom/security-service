@@ -26,7 +26,8 @@ import java.util.List;
 /**
  * Define la frontera stateless de registro, identidad JWT y administración.
  *
- * <p>La API no usa sesiones, formularios ni autenticación por cookies. Las rutas
+ * <p>La API no usa HttpSession ni formularios. El negocio usa Bearer; la renovación del navegador
+ * tiene endpoints específicos con origen exacto y cabecera CSRF obligatoria. Las rutas
  * administrativas exigen ADMIN y las rutas no declaradas se deniegan.</p>
  *
  * @author MaxDz
@@ -64,7 +65,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
-                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/api/v1/auth/register", "/api/v1/auth/login",
+                                "/api/v1/auth/session", "/api/v1/auth/session/refresh", "/api/v1/auth/session/logout").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/v1/auth/me").hasAnyRole("ADMIN", "CLIENTE", "REPARTIDOR")
                         .requestMatchers(HttpMethod.POST, "/api/v1/usuarios").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/v1/usuarios/{id}").hasRole("ADMIN")

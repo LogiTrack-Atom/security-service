@@ -18,6 +18,12 @@ import java.util.UUID;
  * @see TokenResponse
  */
 public interface AuthService {
+    /** Verifica credenciales para crear una sesión interna sin recibir roles del cliente.
+     * @param request credenciales validadas
+     * @return cuenta persistida; no se serializa desde controladores
+     */
+    com.logitrack_atom.security_service.entity.Usuario autenticarCuenta(LoginRequest request);
+
     /**
      * Autentica credenciales y emite un token de acceso.
      * @param request credenciales validadas en la frontera HTTP

@@ -41,7 +41,10 @@ abstract class MySqlIntegrationSupport {
             .withPassword(UUID.randomUUID().toString()).withUrlParam("serverTimezone", "UTC")
             .withCopyFileToContainer(MountableFile.forHostPath(
                     Path.of("docker/mysql/init/001-schema.sql").toAbsolutePath()),
-                    "/docker-entrypoint-initdb.d/001-schema.sql");
+                    "/docker-entrypoint-initdb.d/001-schema.sql")
+            .withCopyFileToContainer(MountableFile.forHostPath(
+                    Path.of("docker/mysql/init/002-refresh-sessions.sql").toAbsolutePath()),
+                    "/docker-entrypoint-initdb.d/002-refresh-sessions.sql");
     static { MYSQL.start(); }
 
     /** Sustituye base y claves únicamente dentro del contexto de integración. */
