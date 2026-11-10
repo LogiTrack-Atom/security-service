@@ -4,6 +4,11 @@ spring:
   profiles:
     default: dev
 
+logitrack:
+  session:
+    origin: ${SESSION_ORIGIN:https://localhost}
+    ttl: ${SESSION_TTL:8h}
+
 ---
 spring:
   config:

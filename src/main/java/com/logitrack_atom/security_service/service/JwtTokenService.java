@@ -43,13 +43,25 @@ public class JwtTokenService {
      * @return token Bearer con duración declarada en segundos
      */
     public TokenResponse emitir(Usuario usuario) {
+        return emitir(usuario, clock.instant().plus(properties.accessTokenTtl()));
+    }
+
+    /** Emite acceso sin superar el límite absoluto de una sesión del navegador.
+     * @param usuario cuenta autenticada
+     * @param sessionEnd límite absoluto de sesión
+     * @return JWT con TTL acotado
+     */
+    public TokenResponse emitir(Usuario usuario, java.time.Instant sessionEnd) {
         var now = clock.instant().truncatedTo(ChronoUnit.SECONDS);
+        var end = now.plus(properties.accessTokenTtl());
+        if (sessionEnd.isBefore(end)) end = sessionEnd.truncatedTo(ChronoUnit.SECONDS);
+        if (!end.isAfter(now)) throw new com.logitrack_atom.security_service.exception.CredencialesInvalidasException();
         JwtClaimsSet claims = JwtClaimsSet.builder().issuer(properties.issuer())
                 .audience(List.of(properties.audience())).subject(usuario.getId().toString())
-                .issuedAt(now).notBefore(now).expiresAt(now.plus(properties.accessTokenTtl()))
+                .issuedAt(now).notBefore(now).expiresAt(end)
                 .claim("roles", List.of(usuario.getRol().name())).build();
         var token = encoder.encode(JwtEncoderParameters.from(
                 JwsHeader.with(SignatureAlgorithm.RS256).build(), claims));
-        return new TokenResponse(token.getTokenValue(), "Bearer", properties.accessTokenTtl().toSeconds());
+        return new TokenResponse(token.getTokenValue(), "Bearer", java.time.Duration.between(now, end).toSeconds());
     }
 }
