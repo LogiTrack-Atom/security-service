@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: security-service
+  profiles:
+    default: dev
+
+logitrack:
+  session:
+    origin: ${SESSION_ORIGIN:https://localhost}
+    ttl: ${SESSION_TTL:8h}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: dev | prod
+    import: configserver:${CONFIG_SERVER_URL:http://localhost:8085}
+  cloud:
+    config:
+      label: ${CONFIG_LABEL:develop}
+      fail-fast: true
+      request-connect-timeout: 2000
+      request-read-timeout: 3000

@@ -1,22 +1,223 @@
 # security-service
 
-Componente de [LogiTrack Atom](https://github.com/LogiTrack-Atom) para el Sprint 02.
+Servicio de identidad de [LogiTrack Atom](https://github.com/LogiTrack-Atom).
+Responsable principal: [MaxDZ-10](https://github.com/MaxDZ-10).
 
-## Responsabilidad
+## Alcance actual
 
-Usuarios, autenticación, roles y emisión de JWT.
+La aplicación implementa registro CLIENTE, usuarios UUID, contraseñas con hash, bootstrap ADMIN y autenticación JWT RS256. Usa Java 25, Spring Boot 4.1.1 y MySQL 8.4.11. Maven Wrapper fija Maven 3.10.0. Versión del servicio: 0.2.0-SNAPSHOT.
 
-Responsable principal: [@MaxDZ-10](https://github.com/MaxDZ-10).
+El registro corresponde a la [issue #1](https://github.com/LogiTrack-Atom/security-service/issues/1); login, JWT y perfil autenticado, a la [issue #2](https://github.com/LogiTrack-Atom/security-service/issues/2); y la administración REST de usuarios, a la [issue #3](https://github.com/LogiTrack-Atom/security-service/issues/3). La configuración centralizada y la imagen Docker corresponden a la [issue #4](https://github.com/LogiTrack-Atom/security-service/issues/4).
 
-## Estado
+Los [contratos compartidos](https://github.com/LogiTrack-Atom/shipment-service/blob/develop/docs/sprint02/Contratos_tecnicos.md) y el [Project común](https://github.com/orgs/LogiTrack-Atom/projects/1) coordinan los cinco repositorios. El Compose general se mantiene en shipment-service.
 
-Repositorio preparado para iniciar el Sprint 02. La implementación y sus verificaciones se realizarán mediante las issues correspondientes.
+## Estructura
 
-## Flujo de trabajo
+| Componente | Responsabilidad |
+| --- | --- |
+| controller | Registro, login, perfil y operaciones administrativas |
+| dto | Entradas específicas de cada operación y respuestas sin credenciales |
+| service / service.impl | Unicidad, hash, rol de alta y transacciones |
+| repository / entity | Persistencia y auditoría de usuarios |
+| mapper | Conversión a datos públicos |
+| config / bootstrap | Seguridad web y alta inicial opcional de ADMIN |
+| security | Carga local de claves y validación del contrato JWT |
+| exception / validation | ApiError y límites de entrada |
+| docker/mysql/init | Esquema inicial versionado |
+| src/test | Pruebas unitarias y MySQL aislado mediante Testcontainers |
+| docs/openapi.json | Contrato OpenAPI versionado de autenticación y administración |
 
-- Crear las issues de este componente en este repositorio y agregarlas al Project común **LogiTrack Atom** de la organización.
-- Trabajar en ramas por tarea y abrir pull requests hacia `develop`.
-- Integrar y preparar la entrega desde `develop`.
-- Enlazar las tareas relacionadas cuando haya dependencias entre repositorios.
+Las clases y los métodos públicos incluyen Javadoc con reglas, parámetros y retornos aplicables. El UUID de usuario es independiente del UUID de cliente o repartidor; este servicio no contiene relaciones JPA hacia otras bases.
 
-El Docker Compose general y la documentación de integración se mantienen en [shipment-service](https://github.com/LogiTrack-Atom/shipment-service).
+## Registro público
+
+`POST /api/v1/auth/register`, con `Content-Type: application/json`:
+
+```json
+{
+  "email": "ana@example.com",
+  "password": "FraseDeEjemploParaEntornoLocal"
+}
+```
+
+La contraseña del ejemplo es ilustrativa. La respuesta 201 contiene `id`, `email`, `roles: ["CLIENTE"]`, `createdAt` y `updatedAt`; nunca incluye contraseña ni hash. El rol se decide en el servicio. JSON con `rol`, `roles`, identificadores de dominio u otros campos desconocidos produce 400.
+
+El correo se normaliza con `strip()` y minúsculas mediante `Locale.ROOT`; tiene formato email, máximo 254 caracteres y restricción única en MySQL. La contraseña no se recorta ni normaliza: admite al menos 12 caracteres y hasta 72 bytes UTF-8, comprobados antes de BCrypt para evitar truncamiento de caracteres multibyte. El hash usa BCrypt con factor 12 y prefijo `{bcrypt}`.
+
+| Estado | Significado |
+| --- | --- |
+| 201 | Cuenta CLIENTE creada |
+| 400 | Credenciales inválidas, JSON inválido o campos no admitidos |
+| 409 | Correo ocupado o conflicto de persistencia, incluida concurrencia |
+| 415 | Tipo de contenido no admitido |
+| 401 / 403 | Denegación de una ruta no habilitada |
+
+Los errores mantienen `timestamp`, `status`, `error`, `mensaje` y `detalles`, conforme a ApiError. Las respuestas no devuelven valores de contraseña, SQL ni trazas internas. No se habilitan HTTP Basic, formulario, sesión ni usuario de desarrollo automático de Spring Security.
+
+## Login y usuario autenticado
+
+`POST /api/v1/auth/login` recibe únicamente email y password. El email se normaliza igual que en el registro y la contraseña se verifica sin alterarla. Una cuenta inexistente y una contraseña incorrecta producen el mismo 401 con `mensaje: "Credenciales inválidas."`. También se verifica un hash ficticio cuando no existe la cuenta para conservar el trabajo criptográfico de esa ruta. Una entrada estructuralmente inválida produce 400; el login rechaza roles, sub e identificadores enviados en el cuerpo.
+
+Una autenticación correcta devuelve 200 con este contrato:
+
+```json
+{
+  "accessToken": "<JWT firmado>",
+  "tokenType": "Bearer",
+  "expiresIn": 900
+}
+```
+
+`GET /api/v1/auth/me` requiere `Authorization: Bearer <accessToken>` y devuelve los datos públicos de la cuenta identificada por el `sub` validado. Los parámetros de otro usuario no cambian ese objetivo. Una cuenta retirada de la base produce 401. Login y perfil usan `Cache-Control: no-store`; no crean una sesión ni devuelven la contraseña o el hash.
+
+Los tokens contienen UUID de usuario en `sub`, roles persistidos en `roles`, `iss=logitrack-security`, audiencia `logitrack-api` en `aud`, `iat`, `nbf` y `exp`. La duración por defecto es 900 segundos y la tolerancia de reloj es 60 segundos. Los validadores admiten ese margen alrededor de los tiempos de validez; no renuevan ni modifican el token. Se pueden configurar duraciones enteras de 1 a 900 segundos y tolerancias enteras de 0 a 60 segundos.
+
+El decoder permite exclusivamente RS256 y valida firma, emisor, audiencia, tiempos, UUID canónico y roles conocidos. Exige exp e iat y rechaza vidas superiores al límite configurado. Convierte los roles a `ROLE_ADMIN`, `ROLE_CLIENTE` o `ROLE_REPARTIDOR`; Spring Security agrega además el factor de autenticación Bearer. El sub no representa automáticamente un cliente ni un repartidor.
+
+Los tokens vencidos fuera de tolerancia, alterados, sin firma, firmados con otra clave o con algoritmo diferente se rechazan con 401 y ApiError. El token se admite solo en la cabecera Authorization. No se implementan refresh tokens ni discovery OIDC. Para renovar el acceso se realiza un nuevo login. Los demás servicios validarán localmente con la clave pública y los mismos parámetros; no necesitan consultar a security por cada token.
+
+## Administración de usuarios
+
+Las dos operaciones administrativas requieren `Authorization: Bearer <accessToken>` con rol ADMIN. El primer administrador se prepara con el procedimiento del apartado **Primer administrador**; después inicia sesión mediante `/api/v1/auth/login`.
+
+`POST /api/v1/usuarios`, con `Content-Type: application/json`:
+
+```json
+{
+  "email": "repartidor@example.com",
+  "password": "FraseDeEjemploParaEntornoLocal",
+  "rol": "REPARTIDOR"
+}
+```
+
+El campo singular `rol` es obligatorio y acepta exactamente ADMIN, CLIENTE o REPARTIDOR. No se admiten ordinales numéricos, listas, campos desconocidos, UUID ni fechas impuestas por el solicitante. La política y normalización de credenciales coincide con el registro público. La respuesta 201 incluye los datos seguros de la cuenta y `Location: /api/v1/usuarios/{id}`. El correo existente produce 409 y conserva su rol, contraseña y auditoría; este endpoint crea cuentas y no actualiza las existentes.
+
+`GET /api/v1/usuarios/{id}` devuelve UUID de usuario, email canónico, roles y fechas. ADMIN puede utilizar esta consulta para verificar una cuenta antes de asociarla en shipment o courier. Un UUID válido sin cuenta devuelve 404 y un parámetro no convertible a UUID devuelve 400. El servicio no guarda asociaciones con identidades de esos dominios.
+
+| Operación | Sin token válido | ADMIN | CLIENTE / REPARTIDOR |
+| --- | --- | --- | --- |
+| POST /api/v1/auth/register | Pública sin token; crea CLIENTE | Igual registro público | Igual registro público |
+| POST /api/v1/auth/login | Pública sin token; verifica credenciales | Igual login | Igual login |
+| GET /api/v1/auth/me | 401 | Perfil propio | Perfil propio |
+| POST /api/v1/usuarios | 401 | Alta con rol explícito | 403 |
+| GET /api/v1/usuarios/{id} | 401 | Consulta administrativa | 403, incluso al consultar su UUID |
+| GET /actuator/health | Pública sin detalles | Igual salud pública | Igual salud pública |
+| Otras rutas o métodos | 401 | 403 | 403 |
+
+Un Bearer inválido se rechaza también cuando acompaña una petición a las rutas públicas. Las denegaciones ocurren antes de acceder al controller; un rol sin permiso recibe 403 aunque el cuerpo o el UUID sean inválidos. Ambas operaciones administrativas evitan caché y no devuelven contraseñas ni hashes. Las respuestas mantienen `ApiError` para 400, 401, 403, 404, 409 y 415.
+
+La API no conserva autenticación entre solicitudes. Cookies como JSESSIONID, HTTP Basic y `access_token` en la query no reemplazan la cabecera Bearer. Un token correctamente firmado también se rechaza si venció fuera de la tolerancia configurada. Los validadores usan los roles firmados durante la emisión hasta que expira el token; no implementan revocación inmediata ni consultan la base para autorizar cada solicitud. No se exponen edición de roles, eliminación de cuentas ni listado general de usuarios en este alcance.
+
+## Contrato de API
+
+[docs/openapi.json](docs/openapi.json) describe las seis operaciones, incluida la salud mínima, cuerpos, roles, Bearer JWT, respuestas seguras y errores. Es un contrato OpenAPI 3.1 importable en herramientas compatibles y Postman. La documentación se distribuye con el repositorio. Actuator expone únicamente la salud sin detalles; los endpoints de configuración permanecen denegados.
+
+## Claves externas
+
+Para crear un par nuevo se necesita OpenSSL. Desde la raíz del repositorio:
+
+```bash
+mkdir -p "$HOME/.local/share/logitrack"
+./scripts/generar-claves.sh "$HOME/.local/share/logitrack/jwt-keys"
+export JWT_PRIVATE_KEY_LOCATION="file:$HOME/.local/share/logitrack/jwt-keys/jwt-private.pem"
+export JWT_PUBLIC_KEY_LOCATION="file:$HOME/.local/share/logitrack/jwt-keys/jwt-public.pem"
+```
+
+El script exige un directorio nuevo y genera RSA de 3072 bits con permisos restringidos al propietario. Para reutilizar un par existente se configuran directamente sus ubicaciones, manteniendo la privada PKCS#8 y la pública X.509. El servicio admite RSA desde 2048 bits y comprueba la correspondencia del par al arrancar. Las ubicaciones deben ser archivos locales; no se descargan claves por HTTP ni se generan claves de reemplazo durante el arranque.
+
+Solo security recibe la privada. Shipment y courier recibirán exclusivamente la pública mediante sus archivos montados. Las rutas se suministran por entorno, y `.gitignore` y `.dockerignore` excluyen claves, almacenes y secretos. El repositorio y el JAR no contienen un par privado. La imagen utiliza montajes externos y un contexto con archivos permitidos explícitamente. La preparación de permisos y el procedimiento de ejecución se describen en [Configuración remota y Docker](docs/Configuracion_remota.md).
+
+| Variable | Valor |
+| --- | --- |
+| JWT_PRIVATE_KEY_LOCATION | URI file: absoluta de la privada, requerida |
+| JWT_PUBLIC_KEY_LOCATION | URI file: absoluta de la pública, requerida |
+| JWT_ISSUER | logitrack-security por defecto |
+| JWT_AUDIENCE | logitrack-api por defecto |
+| JWT_ACCESS_TOKEN_TTL | 15m por defecto, máximo 900 segundos |
+| JWT_CLOCK_SKEW | 60s por defecto, máximo 60 segundos |
+
+Un cambio de clave pública debe coordinarse con los validadores: los tokens firmados con la clave anterior dejarán de validarse cuando se reemplace esa pública. La rotación y distribución se realizan fuera de Git. Los DTOs de login y token protegen sus representaciones de diagnóstico para que no incluyan credenciales.
+
+## MySQL local y arranque
+
+Se necesitan JDK 25, Docker y acceso a Maven Central durante la primera resolución de dependencias. Los siguientes comandos crean una base local dedicada; los secretos se ingresan por terminal y no se escriben en Git.
+
+Desde la raíz de este repositorio, en Bash:
+
+```bash
+read -r -s -p 'Contraseña de security_app: ' MYSQL_PASSWORD
+printf '\n'
+read -r -s -p 'Contraseña root del MySQL local: ' MYSQL_ROOT_PASSWORD
+printf '\n'
+export MYSQL_PASSWORD MYSQL_ROOT_PASSWORD
+
+docker run -d --name logitrack-security-mysql \
+  -p 127.0.0.1:3309:3306 \
+  -e MYSQL_DATABASE=security_db -e MYSQL_USER=security_app \
+  -e MYSQL_PASSWORD -e MYSQL_ROOT_PASSWORD \
+  --mount type=volume,src=logitrack-security-mysql-data,dst=/var/lib/mysql \
+  --mount "type=bind,src=$PWD/docker/mysql/init,dst=/docker-entrypoint-initdb.d,readonly" \
+  mysql:8.4.11
+
+export DB_URL='jdbc:mysql://localhost:3309/security_db?serverTimezone=UTC'
+export DB_USERNAME=security_app
+export DB_PASSWORD="$MYSQL_PASSWORD"
+```
+
+Esperar a que MySQL termine la inicialización; puede comprobarse con `docker logs logitrack-security-mysql`. Con las dos variables de ubicación de claves del apartado anterior configuradas:
+
+```bash
+SPRING_PROFILES_ACTIVE=local ./mvnw spring-boot:run
+```
+
+El perfil local explícito inicia la API en el puerto 8082 sin Config Server. Dev y prod requieren configuración remota. El script SQL se ejecuta al inicializar un volumen nuevo. En un volumen existente no vuelve a aplicar cambios de esquema: Hibernate usa `ddl-auto=validate` y rechaza divergencias. Los cambios posteriores requieren una migración versionada. No es necesario borrar datos para ejecutar las pruebas.
+
+Para usar un MySQL ya provisto, un administrador crea `security_db`, un usuario exclusivo `security_app` con acceso únicamente a esa base y ejecuta `docker/mysql/init/001-schema.sql` dentro de ella. La aplicación recibe exclusivamente las credenciales de ese usuario. Los secretos están ausentes de `.env.example`; Spring no carga archivos `.env` automáticamente, por lo que deben exportarse las variables o suministrarse con el mecanismo del entorno.
+
+## Primer administrador
+
+El bootstrap está deshabilitado por defecto. Para habilitarlo durante un arranque, después de configurar MySQL:
+
+```bash
+read -r -p 'Email del primer administrador: ' BOOTSTRAP_ADMIN_EMAIL
+read -r -s -p 'Contraseña del primer administrador: ' BOOTSTRAP_ADMIN_PASSWORD
+printf '\n'
+export BOOTSTRAP_ADMIN_EMAIL BOOTSTRAP_ADMIN_PASSWORD
+SPRING_PROFILES_ACTIVE=local BOOTSTRAP_ADMIN_ENABLED=true ./mvnw spring-boot:run
+```
+
+Las credenciales deben cumplir el mismo contrato del registro. Si faltan o son inválidas, el arranque falla con un mensaje que no revela la contraseña. Si ya existe ADMIN con ese correo, se conservan UUID, hash y fechas; no se restablece su contraseña. Si el correo pertenece a CLIENTE o REPARTIDOR, el arranque falla y no cambia su rol. Una colisión de unicidad entre instancias concurrentes puede detener una de ellas de forma segura; al reiniciar encuentra el administrador persistido.
+
+Una vez creado, se puede reiniciar con el bootstrap deshabilitado y retirar sus credenciales del entorno. No existe un endpoint público de bootstrap ni una contraseña inicial compartida.
+
+## Verificación
+
+Pruebas unitarias, validación y hash, sin MySQL ni Docker:
+
+```bash
+./mvnw clean test
+```
+
+Suite completa con MySQL 8.4.11 aislado y el esquema real:
+
+```bash
+./mvnw clean verify
+```
+
+Testcontainers utiliza un puerto aleatorio y credenciales efímeras de prueba. No usa el MySQL local anterior ni los volúmenes del equipo. Verifica API y filtros reales, restricciones, usuario MySQL limitado, concurrencia, bootstrap, login, perfil JWT y administración por rol; no utiliza transacciones de prueba que oculten el commit. Las pruebas de administración utilizan tokens realmente firmados y procesados por el decoder, sin sustituirlo mediante usuarios simulados. Las claves de las pruebas se generan en un directorio temporal y se retiran al finalizar el proceso, sin utilizar las claves del operador. La suite también levanta un Config Server real con Git temporal y verifica dev/prod, propiedades enlazadas a beans y fallos de arranque sin servidor o secretos. Esos fixtures no se incluyen en producción. Ryuk elimina sus contenedores al terminar. Si Docker Desktop no es detectado automáticamente, se puede indicar su socket mediante `DOCKER_HOST`.
+
+Los reportes se generan en `target/surefire-reports` y `target/failsafe-reports`. Mockito declara su agente explícitamente en Surefire y Failsafe; Failsafe también habilita el acceso nativo requerido por Testcontainers en Java 25.
+
+Para verificar y generar Javadoc:
+
+```bash
+./mvnw javadoc:javadoc -Ddoclint=all
+```
+
+La documentación HTML queda dentro de `target/` y no se versiona. La generación de Javadoc rechaza advertencias y errores de documentación. Los resultados efectivamente ejecutados y el commit verificado se registran en la PR de la issue.
+
+El JAR de esta versión se puede ejecutar con `java -jar target/security-service-0.2.0-SNAPSHOT.jar`, manteniendo las mismas variables de MySQL y claves. Por defecto selecciona dev y requiere Config Server; `SPRING_PROFILES_ACTIVE=local` habilita únicamente el modo local documentado. Los perfiles, propiedades esperadas, build y ejecución del contenedor se detallan en [Configuración remota y Docker](docs/Configuracion_remota.md).
+
+## Colaboración
+
+Las ramas por tarea se crean vinculadas desde su issue, parten de `develop` e incluyen el número de issue: `feature/<numero>-<descripcion>`. Por ejemplo, `gh issue develop 3 --base develop --name feature/3-administracion-usuarios --checkout`. Antes de implementarlas se comprueba su asociación en Development; al abrir el PR se verifica también ese enlace, dado que el destino es `develop` y los números de PR se asignan independientemente. Cada issue se cierra después de verificar aceptación e integración; `main` continúa como rama predeterminada. Se mantienen alineadas las prioridades Alta/Media del Project con las etiquetas priority:P0/P1.
